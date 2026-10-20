@@ -1,0 +1,52 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { changeRole } from "@/app/actions";
+import { requireUser } from "@/lib/auth";
+import { findStudent, listRoles, listStudents, listUsers } from "@/lib/repository";
+import { dashboard, roleLabel } from "@/lib/roles";
+import type { Student } from "@/lib/models";
+import { Shell } from "./shell";
+
+export function StudentData({ student }: { student: Student }) {
+  return <dl className="student-data">
+    <div><dt>Studentnummer</dt><dd>{student.student_number}</dd></div>
+    <div><dt>Naam</dt><dd>{student.first_name} {student.last_name}</dd></div>
+    <div><dt>E-mail</dt><dd>{student.email}</dd></div>
+  </dl>;
+}
+export function StudentTable() {
+  return <div className="table-scroll"><table><thead><tr>
+    <th>Studentnummer</th><th>Naam</th><th>Actie</th>
+  </tr></thead><tbody>{listStudents().map(student => <tr key={student.id}>
+    <td>{student.student_number}</td><td>{student.first_name} {student.last_name}</td>
+    <td><Link href={`/teacher/students/${student.id}`}>Bekijken</Link></td>
+  </tr>)}</tbody></table></div>;
+}
+export function UserTable() {
+  const roles = listRoles();
+  return <>
+    <p><Link className="button" href="/admin/users/new">Gebruiker toevoegen</Link></p>
+    <div className="table-scroll"><table><thead><tr><th>Gebruikersnaam</th><th>Rol</th><th>Actie</th></tr></thead>
+      <tbody>{listUsers().map(user => <tr key={user.id}>
+        <td>{user.username}</td><td>{roleLabel[roles.find(role => role.id === user.role_id)!.name]}</td>
+        <td><form action={changeRole} className="inline-form">
+          <input type="hidden" name="user_id" value={user.id} />
+          <label className="sr-only" htmlFor={`role-${user.id}`}>Rol voor {user.username}</label>
+          <select id={`role-${user.id}`} name="role_id" defaultValue={user.role_id}>
+            {roles.map(role => <option key={role.id} value={role.id}>{roleLabel[role.name]}</option>)}
+          </select><button className="secondary">Rol wijzigen</button>
+        </form></td>
+      </tr>)}</tbody></table></div>
+  </>;
+}
+export async function StudentDetail({ id, teacher = false }: { id: string; teacher?: boolean }) {
+  const user = await requireUser(teacher ? "Teacher" : "Student");
+  // SECURITY VERSION 2: add server-side authorization here.
+  // VERSION 1 deliberately does NOT compare student.user_id with user.id.
+  // A logged-in student can change /student/1 to /student/2 (Broken Access Control).
+  const student = findStudent(Number(id));
+  if (!student) notFound();
+  return <Shell user={user} title="Studentgegevens"><StudentData student={student} />
+    <Link href={teacher ? "/teacher/students" : dashboard[user.role]}>Terug</Link>
+  </Shell>;
+}

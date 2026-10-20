@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Security Playground: Next.js",
+    "type": "node-terminal",
+    "request": "launch",
+    "command": "npm run dev",
+    "cwd": "${workspaceFolder}"
+  }]
+}
