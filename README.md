@@ -1,80 +1,77 @@
-# Security Playground — schoolportaal, versie 1
+# Security Playground — MySQL, versie 1
 
-Dit is het bestaande Next.js-project, omgebouwd van een interactief prototype naar een klein schoolportaal met aparte routes. De interface blijft Nederlandstalig. Het is een lokale oefenomgeving voor de vergelijking vóór en na beveiligingsmaatregelen.
+Het bestaande Next.js-schoolportaal gebruikt nu de MySQL-database `schoolportal`. Routes, Nederlandse interface en versie-1-beveiligingsgedrag blijven behouden. Er is geen JSON- of demodatafallback.
 
-## Starten
+## Installatie op SRV-WEB01
 
-Open deze map in VS Code en voer uit:
+Voer in de bestaande projectmap uit:
 
-```powershell
-npm install
-npm run dev
+```sh
+npm ci
 ```
 
-Open http://127.0.0.1:3000. Als de server al draait, gebruik die bestaande server. Productiecontrole: `npm run build`, daarna `npm start` (stop eerst de ontwikkelserver). Beide scripts luisteren alleen op loopback.
+Maak of bewerk zelf `.env.local` op SRV-WEB01. Dit bestand is genegeerd door Git. Zet hierin:
 
-## Accounts
+```dotenv
+DB_HOST=192.168.10.30
+DB_PORT=3306
+DB_USER=schoolapp
+DB_PASSWORD=<vul het werkelijke databasewachtwoord in>
+DB_NAME=schoolportal
+```
 
-| Gebruikersnaam | Wachtwoord | Rol | Dashboard |
-| --- | --- | --- | --- |
-| student1 | student1 | Student | /student |
-| teacher1 | teacher1 | Docent | /teacher |
-| admin1 | admin1 | Beheerder | /admin |
+`.env.example` bevat alleen een leeg wachtwoordveld. Zet geen echt wachtwoord in broncode of een commit. Een al bestaand `.env.local` is niet gewijzigd.
 
-Een nieuw account kan direct inloggen met het ingestelde wachtwoord. Een nieuw studentenaccount heeft nog geen gekoppeld studentrecord; het portaal toont dit netjes. Student Two en Student Three zijn voorbeeldrecords zonder eigen loginaccount (`user_id: null`).
+```sh
+npm run db:check
+npm run test:db
+npm run build
+npm start
+```
 
-## Routes
+Herstart een bestaande service via de reeds gebruikte servicebeheerder in plaats van een tweede server te starten. `npm start` blijft luisteren op `127.0.0.1:3000`, zoals voorheen. Behoud de bestaande reverse-proxyconfiguratie op SRV-WEB01. De ontwikkelopdracht blijft `npm run dev`.
 
-- `/`: naar login, of het dashboard bij een bestaande sessie.
-- `/login`: gebruikersnaam en wachtwoord, zonder dashboardnavigatie.
-- `/student`: eigen gegevens en link naar eigen record.
-- `/student/[id]`: bijvoorbeeld `/student/1` en `/student/2`.
-- `/teacher`: overzicht met drie studenten.
-- `/teacher/students`: studentenlijst.
-- `/teacher/students/[id]`: studentgegevens.
-- `/admin`: gebruikersbeheer.
-- `/admin/users`: gebruikerslijst en formulieren om rollen te wijzigen.
-- `/admin/users/new`: gebruiker toevoegen.
+`db:check` controleert verbinding, tabelkolommen, rollen en automatisch oplopende IDs zonder gegevens te wijzigen. Er worden geen tabellen, gebruikers of rechten aangemaakt. `users.id` en `sessions.id` moeten door MySQL worden gegenereerd (AUTO_INCREMENT); `session_id` moet een UUID van 36 tekens kunnen opslaan. Sessietijden worden als UTC geschreven en vergeleken. Gebruik dezelfde UTC-conventie bij het inspecteren van deze gegevens.
 
-De oude prototypepagina's en navigatie zijn verwijderd. Elke beschermde pagina controleert login en de basisrol. Uitloggen verwijdert de serversessie en cookie en verwijst naar `/login`.
+## Login en data
 
-## Bestanden en verantwoordelijkheden
+`app/actions.ts` leest gebruikersnaam en wachtwoord. `findLoginUser` in `lib/repository.ts` haalt de gebruiker met een JOIN op `roles` op. Het ingevoerde wachtwoord wordt als platte tekst vergeleken met de waarde uit MySQL. Er zijn geen vaste inlogwachtwoorden meer in de applicatie.
 
-- `app/**/page.tsx`: afzonderlijke serverpagina's.
-- `app/actions.ts`: login, logout, toevoegen en rolwijzigingen.
-- `lib/auth.ts`: sessie uitlezen en basiscontrole van login/rol.
-- `lib/roles.ts`: dashboardroutes en Nederlandse rolnamen.
-- `lib/models.ts`: roles, users, students en sessions.
-- `lib/seed.ts`: geïsoleerde voorbeelddata en demowachtwoorden.
-- `lib/repository.ts`: alle dataopslag en gegevensopvragingen.
-- `components/shell.tsx`: navigatie, gebruikersnaam en rol.
-- `components/forms.tsx`: login- en toevoegformulier met foutmeldingen.
-- `components/records.tsx`: tabellen en studentgegevens.
-- `app/globals.css`, `app/layout.tsx`: eenvoudige opmaak, bestaande lokale Inter-fonts en Nederlandse metadata.
+De bestaande accounts `student1`, `teacher1` en `admin1` gebruiken dus de wachtwoorden die op dit moment in MySQL staan. De rol uit MySQL bepaalt de redirect:
 
-Vervangen/verwijderd: de catch-all `app/[[...screen]]/page.tsx`, `components/portal.tsx`, `components/portal-state.tsx` en de oude `lib/data.ts`. Framework, dependencies en projectmap zijn behouden.
+| Databaserol | Bestaande UI-rol | Route |
+| --- | --- | --- |
+| student | Student | /student |
+| teacher | Docent | /teacher |
+| admin | Beheerder | /admin |
 
-## Data en sessies
+Gebruikersbeheer leest en schrijft MySQL. Studentgegevens komen uit `students`, waarbij de eigen gegevens via `students.user_id = users.id` worden gevonden. De docententabel gebruikt dezelfde database. Sessies worden in `sessions` opgeslagen; de bestaande UUID-cookie, vervaltijd van acht uur en logout-intrekking blijven werken. Oude JSON-sessies worden niet gemigreerd: log opnieuw in.
 
-Er was geen databaseverbinding. De lokale adapter maakt bij het eerste gebruik `data/portal.json` met vier verzamelingen: `roles`, `users`, `students`, `sessions`. Aanpassingen blijven bewaard na een herstart. Deze runtimebestanden staan in `.gitignore`; oude browser-localStorage wordt niet meer gebruikt.
+Alle bestaande routes blijven bestaan: `/login`, `/student`, `/student/[id]`, `/teacher`, `/teacher/students`, `/teacher/students/[id]`, `/admin`, `/admin/users`, `/admin/users/new`.
 
-De cookie bevat een willekeurig sessie-ID. Het serverbestand koppelt dit aan de gebruiker, aanmaaktijd en vervaltijd (acht uur). Elke aanvraag leest de actuele rol, zodat een rolwijziging ook voor een bestaande sessie geldt. Het wachtwoord gaat niet mee naar de UI.
+## Bestanden
 
-De JSON-adapter is bedoeld voor één lokaal Node-proces, niet voor meerdere servers of serverless hosting. Vervang later de functies in `lib/repository.ts` door databasebewerkingen. Er worden nu geen SQL-query's gebruikt; SQL-injectie is dus nog niet te demonstreren.
+- `lib/db.ts`: centrale mysql2/promise-pool, omgevingsvariabelen en veilige foutregistratie.
+- `lib/repository.ts`: directe SQL-query's voor rollen, gebruikers, studenten en sessies.
+- `lib/auth.ts`: bestaande sessie- en basisrolcontrole; geen tweede loginsysteem.
+- `app/actions.ts`: bestaande formulieren met asynchrone databaseaanroepen.
+- `components/records.tsx`, `components/shell.tsx`, `app/student/page.tsx`, `app/admin/users/new/page.tsx`: wachten nu op databasegegevens; uiterlijk blijft gelijk.
+- `app/error.tsx`: eenvoudige foutpagina zonder SQL-details.
+- `scripts/check-db.cjs`: read-only controle voor SRV-WEB01.
+- `tests/database.test.cjs`: lokale tests met gesimuleerde databaseantwoorden.
 
-Voor een nieuwe oefenronde: stop de server, hernoem `data/portal.json` naar een reservekopie en start opnieuw. De originele accounts worden opnieuw aangemaakt. Met `PORTAL_TEST_MODE=1` gebruikt een apart testproces `data/acceptance.json` in plaats van de normale data.
+`lib/seed.ts` en het ongebruikte JSON-databasetype zijn verwijderd. Bestaande bestanden onder `data/` zijn niet verwijderd, maar worden nergens meer ingelezen of bijgewerkt. Ze zijn uitsluitend oude lokale gegevens, geen actieve databron. `mysql2` was al aanwezig; geen ORM of extra runtimebibliotheek toegevoegd.
 
-## Bewust overgelaten voor versie 2
+## Bewust behouden voor versie 2
 
-1. **Broken Access Control:** student1 kan handmatig `/student/2` openen. De normale navigatie verwijst alleen naar `/student/1`. De ontbrekende eigendomscontrole is gemarkeerd in `StudentDetail` in `components/records.tsx`.
-2. **Voorspelbare record-ID's:** studentroutes gebruiken eenvoudige getallen.
-3. **Wachtwoorden in platte tekst:** uitsluitend lokale fictieve gebruikers. Hashing moet later in registratie en login worden toegevoegd.
-4. **Eenvoudige cookie/sessionbeveiliging:** geen expliciete HttpOnly/Secure/SameSite-verharding, idle timeout, periodieke rotatie of sessie-audit. Er is wel basisverval en logout-intrekking.
-5. **Beperkte invoervalidatie:** browsercontroles en alleen eenvoudige serverchecks voor verplichte velden, geldige rol en dubbele gebruikersnaam.
-6. **Geen rate limiting of MFA.** Loginfouten zijn centraal aanpasbaar in `app/actions.ts`.
+- Platte-tekst-wachtwoorden en eenvoudige wachtwoordvergelijking.
+- Voorspelbare studentroutes zonder eigendomscontrole: een ingelogde student kan bijvoorbeeld `/student/2` openen als dat record bestaat.
+- Bestaande eenvoudige cookies/sessies zonder extra hardening, rotatie of idle timeout.
+- Alleen basisvalidatie; geen rate limiting of MFA.
+- Bestaande MySQL-accountrechten blijven ongewijzigd.
 
-De broncode bevat `SECURITY VERSION 2`-commentaar. Deze uitleg verschijnt niet in de portalinterface. React-escaping, Next.js-formuliergedrag en basisrolcontroles zijn behouden; er zijn geen extra SQL- of scriptinjecties ingebouwd.
+De SQL gebruikt gebonden waarden (`?`), zoals gevraagd. Er wordt geen SQL-injectie ingebouwd. Beveiligingscommentaar staat alleen in de broncode. De log registreert uitsluitend een operationele naam en foutcode, nooit SQL-parameters of credentials.
 
-## Acceptatiecontrole
+## Verificatie
 
-Zie `ACCEPTANCE.md` voor de uitgevoerde controles en stappen om ze te herhalen.
+Zie `ACCEPTANCE.md`. De build en lokale tests slagen. Live databaseverificatie vanaf de ontwikkelcomputer gaf ETIMEDOUT; de echte accounts en databasebewerkingen moeten daarom op SRV-WEB01 nog worden gecontroleerd.

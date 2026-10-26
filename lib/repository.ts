@@ -1,75 +1,93 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { seedDatabase } from "./seed";
-import type { Database, User } from "./models";
+import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import { getDb, logDatabaseError, DatabaseUnavailableError } from "./db";
+import type { RoleName, User, Student } from "./models";
 
-// Single-process local JSON adapter. Replace this module with database queries later.
-// Synchronous read/modify/write keeps mutations together in this local Node process.
-// SECURITY VERSION 2: use a database with transactions and parameterised queries.
-const filename = path.join(process.cwd(), "data", process.env.PORTAL_TEST_MODE === "1" ? "acceptance.json" : "portal.json");
-function save(db: Database) {
-  fs.mkdirSync(path.dirname(filename), { recursive: true });
-  const temporary = `${filename}.tmp`;
-  fs.writeFileSync(temporary, JSON.stringify(db, null, 2), "utf8");
-  fs.renameSync(temporary, filename);
+// All portal data comes from MySQL. There is no JSON or demo-data fallback.
+function roleName(name: string): RoleName {
+  if (name === "student") return "Student";
+  if (name === "teacher") return "Teacher";
+  if (name === "admin") return "Administrator";
+  throw new DatabaseUnavailableError();
 }
-function read(): Database {
-  if (!fs.existsSync(filename)) save(seedDatabase());
-  return JSON.parse(fs.readFileSync(filename, "utf8")) as Database;
+async function rows<T>(operation: string, sql: string, values: (string | number | Date)[] = []): Promise<T[]> {
+  try {
+    const [result] = await getDb().execute<RowDataPacket[]>(sql, values);
+    return result as T[];
+  } catch (error) {
+    logDatabaseError(operation, error);
+    throw new DatabaseUnavailableError();
+  }
 }
-export function listRoles() { return read().roles; }
-export function listUsers() {
-  return read().users.map(({ password: _password, ...user }) => user);
+async function write(operation: string, sql: string, values: (string | number | Date)[]) {
+  try {
+    const [result] = await getDb().execute<ResultSetHeader>(sql, values);
+    return result;
+  } catch (error) {
+    logDatabaseError(operation, error);
+    throw new DatabaseUnavailableError();
+  }
 }
-export function findLoginUser(username: string) {
-  return read().users.find(user => user.username === username);
+export async function listRoles() {
+  const result = await rows<{ id: number; name: string }>("roles", "SELECT id, name FROM roles ORDER BY id");
+  return result.map(role => ({ ...role, name: roleName(role.name) }));
 }
-export function listStudents() { return read().students; }
-export function findStudent(id: number) { return read().students.find(student => student.id === id); }
-export function findOwnStudent(userId: number) {
-  return read().students.find(student => student.user_id === userId);
+export async function listUsers() {
+  const result = await rows<Omit<User, "password"> & { role: string }>("users",
+    "SELECT u.id, u.username, u.role_id, r.name AS role FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.id");
+  return result.map(user => ({ ...user, role: roleName(user.role) }));
 }
-export function createUser(input: Omit<User, "id">) {
-  const db = read();
-  if (db.users.some(user => user.username === input.username)) return false;
-  const id = Math.max(0, ...db.users.map(user => user.id)) + 1;
-  db.users.push({ ...input, id });
-  save(db);
-  return true;
+export async function findLoginUser(username: string) {
+  const [user] = await rows<User & { role: string }>("login",
+    "SELECT u.id, u.username, u.password, u.role_id, r.name AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.username = ? LIMIT 1", [username]);
+  return user ? { ...user, role: roleName(user.role) } : null;
 }
-export function updateRole(id: number, roleId: number) {
-  const db = read();
-  const user = db.users.find(user => user.id === id);
-  if (!user || !db.roles.some(role => role.id === roleId)) return false;
-  user.role_id = roleId;
-  save(db);
-  return true;
+const studentColumns = "id, user_id, student_number, first_name, last_name, email";
+export async function listStudents() {
+  return rows<Student>("students", `SELECT ${studentColumns} FROM students ORDER BY id`);
 }
-export function createSession(userId: number) {
-  const db = read();
-  const now = new Date();
-  db.sessions = db.sessions.filter(session => Date.parse(session.expires_at) > now.getTime());
-  const session = {
-    id: Math.max(0, ...db.sessions.map(s => s.id)) + 1,
-    user_id: userId, session_id: randomUUID(), created_at: now.toISOString(),
-    expires_at: new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString(),
-  };
-  db.sessions.push(session);
-  save(db);
-  return session;
+export async function findStudent(id: number) {
+  if (!Number.isSafeInteger(id)) return undefined;
+  return (await rows<Student>("student", `SELECT ${studentColumns} FROM students WHERE id = ? LIMIT 1`, [id]))[0];
 }
-export function sessionUser(token: string) {
-  const db = read();
-  const session = db.sessions.find(s => s.session_id === token && Date.parse(s.expires_at) > Date.now());
-  const user = session && db.users.find(u => u.id === session.user_id);
-  const role = user && db.roles.find(r => r.id === user.role_id);
-  return user && role ? { id: user.id, username: user.username, role: role.name } : null;
+export async function findOwnStudent(userId: number) {
+  return (await rows<Student>("own-student", `SELECT ${studentColumns} FROM students WHERE user_id = ? LIMIT 1`, [userId]))[0];
 }
-export function deleteSession(token: string) {
-  const db = read();
-  db.sessions = db.sessions.filter(session => session.session_id !== token);
-  save(db);
+export async function createUser(input: Omit<User, "id">) {
+  if (await findLoginUser(input.username)) return false;
+  try {
+    await getDb().execute("INSERT INTO users (username, password, role_id) VALUES (?, ?, ?)",
+      [input.username, input.password, input.role_id]);
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === "ER_DUP_ENTRY") return false;
+    logDatabaseError("create-user", error);
+    throw new DatabaseUnavailableError();
+  }
 }
-
+export async function updateRole(id: number, roleId: number) {
+  if (!(await listRoles()).some(role => role.id === roleId)) return false;
+  const result = await write("update-role", "UPDATE users SET role_id = ? WHERE id = ?", [roleId, id]);
+  return result.affectedRows > 0;
+}
+// Same UUID cookie and eight-hour lifetime; session rows now live in MySQL.
+// UTC dates are used for both writes and expiry comparisons.
+export async function createSession(userId: number) {
+  const created = new Date();
+  const expires = new Date(created.getTime() + 8 * 60 * 60 * 1000);
+  const token = randomUUID();
+  const result = await write("create-session",
+    "INSERT INTO sessions (user_id, session_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+    [userId, token, created, expires]);
+  return { id: result.insertId, user_id: userId, session_id: token, created_at: created.toISOString(), expires_at: expires.toISOString() };
+}
+export async function sessionUser(token: string) {
+  const [user] = await rows<{ id: number; username: string; role: string }>("session",
+    "SELECT u.id, u.username, r.name AS role FROM sessions s JOIN users u ON u.id = s.user_id JOIN roles r ON r.id = u.role_id WHERE s.session_id = ? AND s.expires_at > ? LIMIT 1",
+    [token, new Date()]);
+  return user ? { ...user, role: roleName(user.role) } : null;
+}
+export async function deleteSession(token: string) {
+  await write("logout", "DELETE FROM sessions WHERE session_id = ?", [token]);
+}

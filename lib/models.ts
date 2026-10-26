@@ -8,4 +8,4 @@ export type Student = {
 export type Session = {
   id: number; user_id: number; session_id: string; created_at: string; expires_at: string;
 };
-export type Database = { roles: Role[]; users: User[]; students: Student[]; sessions: Session[] };
+

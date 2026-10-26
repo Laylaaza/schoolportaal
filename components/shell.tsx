@@ -4,10 +4,10 @@ import { dashboard, roleLabel } from "@/lib/roles";
 import { findOwnStudent } from "@/lib/repository";
 import type { RoleName } from "@/lib/models";
 
-export function Shell({ user, title, children }: {
+export async function Shell({ user, title, children }: {
   user: { id: number; username: string; role: RoleName }; title: string; children: React.ReactNode;
 }) {
-  const student = user.role === "Student" ? findOwnStudent(user.id) : null;
+  const student = user.role === "Student" ? await findOwnStudent(user.id) : null;
   const secondary = user.role === "Teacher" ? { href: "/teacher/students", label: "Studenten" }
     : user.role === "Administrator" ? { href: "/admin/users", label: "Gebruikers" }
     : student ? { href: `/student/${student.id}`, label: "Mijn gegevens" } : null;

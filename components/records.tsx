@@ -14,21 +14,22 @@ export function StudentData({ student }: { student: Student }) {
     <div><dt>E-mail</dt><dd>{student.email}</dd></div>
   </dl>;
 }
-export function StudentTable() {
+export async function StudentTable() {
+  const students = await listStudents();
   return <div className="table-scroll"><table><thead><tr>
     <th>Studentnummer</th><th>Naam</th><th>Actie</th>
-  </tr></thead><tbody>{listStudents().map(student => <tr key={student.id}>
+  </tr></thead><tbody>{students.map(student => <tr key={student.id}>
     <td>{student.student_number}</td><td>{student.first_name} {student.last_name}</td>
     <td><Link href={`/teacher/students/${student.id}`}>Bekijken</Link></td>
   </tr>)}</tbody></table></div>;
 }
-export function UserTable() {
-  const roles = listRoles();
+export async function UserTable() {
+  const [roles, users] = await Promise.all([listRoles(), listUsers()]);
   return <>
     <p><Link className="button" href="/admin/users/new">Gebruiker toevoegen</Link></p>
     <div className="table-scroll"><table><thead><tr><th>Gebruikersnaam</th><th>Rol</th><th>Actie</th></tr></thead>
-      <tbody>{listUsers().map(user => <tr key={user.id}>
-        <td>{user.username}</td><td>{roleLabel[roles.find(role => role.id === user.role_id)!.name]}</td>
+      <tbody>{users.map(user => <tr key={user.id}>
+        <td>{user.username}</td><td>{roleLabel[user.role]}</td>
         <td><form action={changeRole} className="inline-form">
           <input type="hidden" name="user_id" value={user.id} />
           <label className="sr-only" htmlFor={`role-${user.id}`}>Rol voor {user.username}</label>
@@ -41,10 +42,10 @@ export function UserTable() {
 }
 export async function StudentDetail({ id, teacher = false }: { id: string; teacher?: boolean }) {
   const user = await requireUser(teacher ? "Teacher" : "Student");
-  // SECURITY VERSION 2: add server-side authorization here.
+  // SECURITY VERSION 2: add server-side ownership/authorization check
   // VERSION 1 deliberately does NOT compare student.user_id with user.id.
   // A logged-in student can change /student/1 to /student/2 (Broken Access Control).
-  const student = findStudent(Number(id));
+  const student = await findStudent(Number(id));
   if (!student) notFound();
   return <Shell user={user} title="Studentgegevens"><StudentData student={student} />
     <Link href={teacher ? "/teacher/students" : dashboard[user.role]}>Terug</Link>
