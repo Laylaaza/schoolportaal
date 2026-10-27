@@ -19,7 +19,7 @@ export function AddUserForm({ roles }: { roles: Role[] }) {
   const [state, action, pending] = useActionState(addUser, { error: "" });
   return <form action={action} className="narrow-form">
     <label htmlFor="username">Gebruikersnaam</label>
-    <input id="username" name="username" autoComplete="off" required maxLength={60} />
+    <input id="username" name="username" autoComplete="off" required maxLength={30} pattern="[A-Za-z0-9_]{3,30}" title="Gebruik 3 tot 30 letters, cijfers of underscores." />
     <label htmlFor="password">Wachtwoord</label>
     <input id="password" name="password" type="password" autoComplete="new-password" required />
     <label htmlFor="role_id">Rol</label>

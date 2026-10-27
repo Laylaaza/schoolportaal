@@ -1,7 +1,12 @@
 import { requireUser } from "@/lib/auth";
 import { Shell } from "@/components/shell";
 import { StudentTable } from "@/components/records";
-export default async function StudentsPage() {
+import { StudentSearch } from "@/components/student-search";
+export default async function StudentsPage({ searchParams }: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
   const user = await requireUser("Teacher");
-  return <Shell user={user} title="Studenten"><StudentTable /></Shell>;
+  const query = (await searchParams).q;
+  const search = typeof query === "string" ? query : "";
+  return <Shell user={user} title="Studenten"><StudentSearch value={search} /><StudentTable search={search} /></Shell>;
 }

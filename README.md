@@ -45,7 +45,7 @@ De bestaande accounts `student1`, `teacher1` en `admin1` gebruiken dus de wachtw
 | teacher | Docent | /teacher |
 | admin | Beheerder | /admin |
 
-Gebruikersbeheer leest en schrijft MySQL. Studentgegevens komen uit `students`, waarbij de eigen gegevens via `students.user_id = users.id` worden gevonden. De docententabel gebruikt dezelfde database. Sessies worden in `sessions` opgeslagen; de bestaande UUID-cookie, vervaltijd van acht uur en logout-intrekking blijven werken. Oude JSON-sessies worden niet gemigreerd: log opnieuw in.
+Gebruikersbeheer leest en schrijft MySQL. Studentgegevens komen uit `students`, waarbij de eigen gegevens via `students.user_id = users.id` worden gevonden. De docententabel gebruikt dezelfde database. Sessies worden in `sessions` opgeslagen; de bestaande UUID-cookie en vervaltijd van acht uur blijven werken. Logout wist in versie 1 alleen de cookie; het token blijft tot de oorspronkelijke vervaltijd bruikbaar. Oude JSON-sessies worden niet gemigreerd: log opnieuw in.
 
 Alle bestaande routes blijven bestaan: `/login`, `/student`, `/student/[id]`, `/teacher`, `/teacher/students`, `/teacher/students/[id]`, `/admin`, `/admin/users`, `/admin/users/new`.
 
@@ -70,8 +70,19 @@ Alle bestaande routes blijven bestaan: `/login`, `/student`, `/student/[id]`, `/
 - Alleen basisvalidatie; geen rate limiting of MFA.
 - Bestaande MySQL-accountrechten blijven ongewijzigd.
 
-De SQL gebruikt gebonden waarden (`?`), zoals gevraagd. Er wordt geen SQL-injectie ingebouwd. Beveiligingscommentaar staat alleen in de broncode. De log registreert uitsluitend een operationele naam en foutcode, nooit SQL-parameters of credentials.
+Alle SQL gebruikt gebonden waarden (`?`), behalve de ene geïsoleerde functie `searchStudentsUnsafeV1`. Deze bouwt de docentzoekopdracht bewust onveilig op voor de lokale versie-1-demonstratie. Beveiligingscommentaar staat alleen in de broncode. De log registreert uitsluitend een operationele naam en foutcode, nooit SQL-parameters of credentials.
 
 ## Verificatie
 
-Zie `ACCEPTANCE.md`. De build en lokale tests slagen. Live databaseverificatie vanaf de ontwikkelcomputer gaf ETIMEDOUT; de echte accounts en databasebewerkingen moeten daarom op SRV-WEB01 nog worden gecontroleerd.
+Zie `ACCEPTANCE.md` en de volledige opnametabel in `VIDEO_TESTS.md`. De build en 17 lokale tests slagen. Live databaseverificatie vanaf de ontwikkelcomputer gaf ETIMEDOUT; de echte accounts en databasebewerkingen moeten daarom op SRV-WEB01 nog worden gecontroleerd.
+
+## Extra geïsoleerde versie-1-testpunten (27 oktober 2026)
+
+- `/admin/users` controleert alleen login en laat iedere ingelogde rol de gebruikerslijst lezen. Toevoegen en rolwijzigingen blijven admin-only.
+- Studentzoeken op `/teacher/students` gebruikt één onveilige query.
+- De gebruikersnaamregel (3–30 letters/cijfers/underscores) bestaat alleen als browserpattern; de server laat bijvoorbeeld `lab!demo` door.
+- Logout wist alleen de browsercookie, niet de serversessie.
+- Login maakt onderscheid tussen een onbekende gebruiker en een verkeerd wachtwoord.
+- Bestaande MySQL-permissies en GNS3/pfSense-configuratie zijn niet aangepast.
+
+Alle toekomstige verbeteringen zijn gemarkeerd met `SECURITY VERSION 2:`. Next.js meldde tijdens de build ook een dependency-beveiligingsadvies; dependencyversies zijn in deze opdracht niet gewijzigd.

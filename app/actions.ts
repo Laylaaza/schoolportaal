@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireUser, SESSION_COOKIE } from "@/lib/auth";
-import { createSession, createUser, deleteSession, findLoginUser, listRoles, updateRole } from "@/lib/repository";
+import { createSession, createUser, findLoginUser, listRoles, updateRole } from "@/lib/repository";
 import { DatabaseUnavailableError } from "@/lib/db";
 import { dashboard } from "@/lib/roles";
 export type FormState = { error: string };
@@ -15,8 +15,10 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
   let destination: string;
   try {
     const user = await findLoginUser(username);
-    // SECURITY VERSION 2: replace plain text password comparison with password hashing
-    if (!user || user.password !== password) return { error: "Gebruikersnaam of wachtwoord is onjuist." };
+    // SECURITY VERSION 2: use one generic authentication error message
+    if (!user) return { error: "Gebruiker niet gevonden." };
+    // SECURITY VERSION 2: replace plain text passwords with secure password hashing
+    if (user.password !== password) return { error: "Onjuist wachtwoord." };
     const session = await createSession(user.id);
     // SECURITY VERSION 2: harden cookie flags (HttpOnly/Secure/SameSite) for deployment.
     (await cookies()).set(SESSION_COOKIE, session.session_id, { path: "/", expires: new Date(session.expires_at) });
@@ -30,8 +32,8 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
 }
 export async function logout() {
   const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
-  if (token) await deleteSession(token);
+  // SECURITY VERSION 2: invalidate the active server side session on logout
+  // Lab baseline: the saved token still works until its existing eight-hour expiry.
   jar.delete(SESSION_COOKIE);
   redirect("/login");
 }
@@ -42,6 +44,8 @@ export async function addUser(_state: FormState, form: FormData): Promise<FormSt
     const username = String(form.get("username") || "").trim();
     const password = String(form.get("password") || "");
     const role_id = Number(form.get("role_id"));
+    // SECURITY VERSION 2: validate and allowlist input server side
+    // Username format is checked only by the browser; required fields and role integrity remain.
     if (!username || !password || !(await listRoles()).some(role => role.id === role_id)) {
       return { error: "Vul alle velden in en kies een geldige rol." };
     }

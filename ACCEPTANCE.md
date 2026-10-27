@@ -1,27 +1,23 @@
-# Acceptatie — MySQL-integratie (26 oktober 2026)
+# Acceptatie — versie-1-demonstraties (27 oktober 2026)
 
 ## Uitgevoerd
 
-- Productiebouw met TypeScript: geslaagd; bestaande routes behouden.
-- Productieserver gestart; GET /login gaf HTTP 200 met het bestaande gebruikersnaamformulier. Testserver daarna gestopt.
-- `node --test tests/database.test.cjs`: 12 tests geslaagd met gesimuleerde driverantwoorden.
-- Tests controleren de drie databaserollen/redirects, databasewachtwoordgebruik, ongeldige credentials, ontbrekende records, eigen-studentrelatie, de behouden ownership-gap, sessiecreatie/verval/logout, gebonden parameters, dubbele gebruikersnamen en veilige foutmeldingen.
-- Live read-only databasecontrole: ETIMEDOUT vanaf deze computer. Geen geslaagde live login of database-write geclaimd.
-- Geen databasewachtwoord geschreven naar broncode; bestaand `.env.local` niet gewijzigd.
+- Productieserver gestart: `/login` gaf HTTP 200. Zonder cookie gaven `/admin/users`, `/student/2` en `/teacher/students?q=test` een 307-redirect naar `/login`. Testserver daarna gestopt.
 
-## Nog uit te voeren op SRV-WEB01
+- 17 tests geslaagd (`npm run test:db`) met gesimuleerde databaseantwoorden.
+- Productiebouw en TypeScript geslaagd. De eerste sandboxbuild kon gegenereerde bestanden niet schrijven; de build buiten de sandbox slaagde.
+- De build meldde daarnaast een bestaande Next.js-dependencywaarschuwing; geen dependency-upgrade uitgevoerd.
+- Bestaande loginredirects voor Student, Teacher en Administrator getest met databaseantwoorden; geen hardcoded accountfallback.
+- Student-ID-lookup blijft zonder ownershipfilter; login blijft vereist.
+- `/admin/users` roept de logincontrole zonder rolvereiste aan; studenten krijgen de gebruikerslijst zonder mutatieknoppen.
+- Eén zoekfunctie gebruikt onveilige concatenatie; de overige query's blijven gebonden.
+- Add-user-serveractie accepteert `lab!demo`, terwijl de browserpattern die naam afwijst. Adminrol en geldige role_id blijven vereist.
+- Logout wist alleen de cookie; sessieopvraging accepteert de behouden niet-verlopen token.
+- Login geeft verschillende fouten voor onbekende naam en fout wachtwoord; databasefouten blijven generiek.
+- Live read-only databasecontrole: ETIMEDOUT. Geen geslaagde echte SQL-injectie, live login of database-write geclaimd.
+- MySQL-grants, GNS3 en pfSense niet gewijzigd. De huidige bereikbaarheid/grants zijn vanaf hier niet bevestigd.
 
-1. Stel DB_HOST, DB_PORT, DB_USER, DB_PASSWORD en DB_NAME in; voer `npm run db:check` uit.
-2. Start/herstart de applicatie en open `/login` zonder sessie.
-3. Log in met student1 en het wachtwoord uit MySQL; verwacht `/student` en gekoppelde studentgegevens.
-4. Log uit, log in met teacher1; verwacht `/teacher` en echte studentenrecords.
-5. Log uit, log in met admin1; verwacht `/admin` en gebruikers/rollen uit MySQL.
-6. Controleer onbekende gebruikersnaam en verkeerd wachtwoord: bestaande eenvoudige foutmelding.
-7. Voeg een oefengebruiker toe, wijzig diens rol en verifieer de database en een nieuwe login.
-8. Verifieer sessie na reload; logout verwijdert de sessierij en cookie.
-9. Controleer dat een student nog steeds handmatig een ander bestaand `/student/[id]` kan openen (bewuste versie-1-baseline).
-10. Onderbreek de databaseverbinding in de oefenomgeving en controleer dat de browser alleen een eenvoudige foutmelding toont.
+## Nog in het virtuele lab
 
-De browserchecks van de oude JSON-versie zijn geen bewijs voor deze MySQL-integratie. Live acceptance blijft open totdat bovenstaande controles op de server zijn uitgevoerd.
-
+Voer eerst `npm run db:check` op SRV WEB01 uit. Volg daarna de negen afzonderlijke scenario's in `VIDEO_TESTS.md` en controleer alle normale logins, studentgegevens, docententabel en adminmutaties. Gebruik bestaande labaccounts en records. De lokale tests voeren geen echte SQL uit en vervangen deze live checks niet.
 

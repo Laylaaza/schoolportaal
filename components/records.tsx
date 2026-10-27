@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { changeRole } from "@/app/actions";
 import { requireUser } from "@/lib/auth";
-import { findStudent, listRoles, listStudents, listUsers } from "@/lib/repository";
+import { findStudent, listRoles, listStudents, listUsers, searchStudentsUnsafeV1 } from "@/lib/repository";
 import { dashboard, roleLabel } from "@/lib/roles";
 import type { Student } from "@/lib/models";
 import { Shell } from "./shell";
@@ -14,8 +14,8 @@ export function StudentData({ student }: { student: Student }) {
     <div><dt>E-mail</dt><dd>{student.email}</dd></div>
   </dl>;
 }
-export async function StudentTable() {
-  const students = await listStudents();
+export async function StudentTable({ search = "" }: { search?: string }) {
+  const students = search ? await searchStudentsUnsafeV1(search) : await listStudents();
   return <div className="table-scroll"><table><thead><tr>
     <th>Studentnummer</th><th>Naam</th><th>Actie</th>
   </tr></thead><tbody>{students.map(student => <tr key={student.id}>
@@ -23,26 +23,26 @@ export async function StudentTable() {
     <td><Link href={`/teacher/students/${student.id}`}>Bekijken</Link></td>
   </tr>)}</tbody></table></div>;
 }
-export async function UserTable() {
+export async function UserTable({ canManage = true }: { canManage?: boolean }) {
   const [roles, users] = await Promise.all([listRoles(), listUsers()]);
   return <>
-    <p><Link className="button" href="/admin/users/new">Gebruiker toevoegen</Link></p>
-    <div className="table-scroll"><table><thead><tr><th>Gebruikersnaam</th><th>Rol</th><th>Actie</th></tr></thead>
+    {canManage && <p><Link className="button" href="/admin/users/new">Gebruiker toevoegen</Link></p>}
+    <div className="table-scroll"><table><thead><tr><th>Gebruikersnaam</th><th>Rol</th>{canManage && <th>Actie</th>}</tr></thead>
       <tbody>{users.map(user => <tr key={user.id}>
         <td>{user.username}</td><td>{roleLabel[user.role]}</td>
-        <td><form action={changeRole} className="inline-form">
+        {canManage && <td><form action={changeRole} className="inline-form">
           <input type="hidden" name="user_id" value={user.id} />
           <label className="sr-only" htmlFor={`role-${user.id}`}>Rol voor {user.username}</label>
           <select id={`role-${user.id}`} name="role_id" defaultValue={user.role_id}>
             {roles.map(role => <option key={role.id} value={role.id}>{roleLabel[role.name]}</option>)}
           </select><button className="secondary">Rol wijzigen</button>
-        </form></td>
+        </form></td>}
       </tr>)}</tbody></table></div>
   </>;
 }
 export async function StudentDetail({ id, teacher = false }: { id: string; teacher?: boolean }) {
   const user = await requireUser(teacher ? "Teacher" : "Student");
-  // SECURITY VERSION 2: add server-side ownership/authorization check
+  // SECURITY VERSION 2: verify that the requested student belongs to the logged in user
   // VERSION 1 deliberately does NOT compare student.user_id with user.id.
   // A logged-in student can change /student/1 to /student/2 (Broken Access Control).
   const student = await findStudent(Number(id));

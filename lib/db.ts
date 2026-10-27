@@ -16,6 +16,7 @@ export function getDb() {
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 5,
+    multipleStatements: false,
     connectTimeout: 5000,
     timezone: "Z",
   });

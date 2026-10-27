@@ -91,3 +91,16 @@ export async function sessionUser(token: string) {
 export async function deleteSession(token: string) {
   await write("logout", "DELETE FROM sessions WHERE session_id = ?", [token]);
 }
+
+// Isolated local-lab SQL injection point. All other queries retain bound values.
+export async function searchStudentsUnsafeV1(search: string): Promise<Student[]> {
+  // SECURITY VERSION 2: replace string concatenation with a parameterised query
+  const sql = "SELECT " + studentColumns + " FROM students WHERE CONCAT(first_name, ' ', last_name) LIKE '%" + search + "%' ORDER BY id";
+  try {
+    const [result] = await getDb().query<RowDataPacket[]>(sql);
+    return result as Student[];
+  } catch (error) {
+    logDatabaseError("student-search-v1", error);
+    throw new DatabaseUnavailableError();
+  }
+}

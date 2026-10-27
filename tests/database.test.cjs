@@ -7,13 +7,13 @@ const ts = require('typescript');
 // Exercise the actual TypeScript modules with a fake driver; no live database is modified.
 function load(file, dependencies) {
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, require(name) {
     if (name === 'server-only') return {};
     if (name in dependencies) return dependencies[name];
-    if (name === 'node:crypto') return require(name);
+    if (name === 'node:crypto' || name === 'react/jsx-runtime') return require(name);
     throw new Error('Unexpected dependency: ' + name);
   }, console, Date });
   return module.exports;
@@ -105,8 +105,79 @@ test('invalid credentials and connection failure produce simple form errors',asy
   for(const user of [null,{password:'correct'}]) {
     const {action,cookieWrites}=actions(user);
     const result=await action.login({error:''},form);
-    assert.equal(result.error,'Gebruikersnaam of wachtwoord is onjuist.');assert.equal(cookieWrites.length,0);
+    assert.equal(result.error,user ? 'Onjuist wachtwoord.' : 'Gebruiker niet gevonden.');assert.equal(cookieWrites.length,0);
   }
   const {action}=actions(null,true);
   assert.equal((await action.login({error:''},form)).error,'Inloggen is tijdelijk niet mogelijk. Probeer het later opnieuw.');
+});
+
+test('one isolated search concatenates the input and uses the query API', async () => {
+  const payload = "zz_no_match%' OR 1=1 -- ";
+  let captured;
+  const repo = load('lib/repository.ts', { './db': {
+    getDb: () => ({query: async sql => {captured=sql;return [[{id:2,first_name:'Student',last_name:'Two'}]];}}),
+    DatabaseUnavailableError,logDatabaseError:()=>{},
+  }});
+  const result = await repo.searchStudentsUnsafeV1(payload);
+  assert.ok(captured.includes(payload));
+  assert.match(captured,/SELECT .* FROM students WHERE/);
+  assert.equal(result[0].id,2);
+  // Actual SQL evaluation must still be checked against the lab MySQL server.
+});
+
+test('logout deletes the browser cookie but a saved session still resolves', async () => {
+  const deleted=[]; let revocations=0;
+  const action=load('app/actions.ts', {
+    'next/headers':{cookies:async()=>({get:()=>({value:'saved-token'}),delete:key=>deleted.push(key)})},
+    'next/navigation':{redirect:url=>{throw Object.assign(new Error('redirect'),{redirect:url});}},
+    'next/cache':{}, '@/lib/auth':{SESSION_COOKIE:'school_session'},
+    '@/lib/db':{DatabaseUnavailableError},'@/lib/roles':{},
+    '@/lib/repository':{deleteSession:async()=>revocations++},
+  });
+  await assert.rejects(action.logout(),error=>error.redirect==='/login');
+  assert.deepEqual(deleted,['school_session']); assert.equal(revocations,0);
+  const repo=repository(async(sql,values)=>{
+    assert.match(sql,/expires_at > \?/);assert.equal(values[0],'saved-token');
+    return [[{id:1,username:'student1',role:'student'}]];
+  });
+  assert.equal((await repo.sessionUser('saved-token')).username,'student1');
+});
+
+test('username browser rule can be bypassed while admin role and role IDs stay checked',async()=>{
+  let saved; const checked=[];
+  const action=load('app/actions.ts', {
+    'next/headers':{},'next/navigation':{redirect:url=>{throw Object.assign(new Error('redirect'),{redirect:url});}},
+    'next/cache':{revalidatePath:()=>{}},'@/lib/auth':{requireUser:async role=>checked.push(role)},
+    '@/lib/db':{DatabaseUnavailableError},'@/lib/roles':{},
+    '@/lib/repository':{listRoles:async()=>[{id:1,name:'Student'}],createUser:async input=>{saved=input;return true;}},
+  });
+  const form=new FormData();form.set('username','lab!demo');form.set('password','LabDemo123');form.set('role_id','1');
+  await assert.rejects(action.addUser({error:''},form),error=>error.redirect==='/admin/users');
+  assert.equal(saved.username,'lab!demo');assert.deepEqual(checked,['Administrator']);
+  form.set('role_id','999');saved=undefined;
+  assert.ok((await action.addUser({error:''},form)).error);assert.equal(saved,undefined);
+});
+
+test('admin users page authenticates but does not require admin; student receives read-only table',async()=>{
+  const checks=[];
+  const page=load('app/admin/users/page.tsx', {
+    '@/lib/auth':{requireUser:async role=>{checks.push(role);return {id:1,username:'student1',role:'Student'};}},
+    '@/components/shell':{Shell:'shell'},'@/components/records':{UserTable:'users'},
+  });
+  const element=await page.default();
+  assert.deepEqual(checks,[undefined]);assert.equal(element.props.children.props.canManage,false);
+});
+
+test('authentication remains required and other role checks still redirect',async()=>{
+  const redirect=url=>{throw Object.assign(new Error('redirect'),{redirect:url});};
+  let signedIn=false;
+  const auth=load('lib/auth.ts', {
+    'next/headers':{cookies:async()=>({get:()=>signedIn?{value:'token'}:undefined})},
+    'next/navigation':{redirect},'./repository':{sessionUser:async()=>({id:1,username:'student1',role:'Student'})},
+    './roles':{dashboard:{Student:'/student'}},
+  });
+  await assert.rejects(auth.requireUser(),error=>error.redirect==='/login');
+  signedIn=true;
+  assert.equal((await auth.requireUser()).username,'student1');
+  await assert.rejects(auth.requireUser('Administrator'),error=>error.redirect==='/student');
 });
