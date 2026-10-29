@@ -8,10 +8,12 @@
     "start": "next start --hostname 127.0.0.1 --port 3000",
     "typecheck": "tsc --noEmit",
     "db:check": "node scripts/check-db.cjs",
-    "test:db": "node --test tests/database.test.cjs"
+    "test:db": "node --test tests/database.test.cjs",
+    "migrate:passwords": "node scripts/migrate-passwords.cjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "bcryptjs": "^3.0.3",
     "mysql2": "^3.24.6",
     "next": "latest",
     "react": "latest",

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { changeRole } from "@/app/actions";
 import { requireUser } from "@/lib/auth";
-import { findStudent, listRoles, listStudents, listUsers, searchStudentsUnsafeV1 } from "@/lib/repository";
+import { findStudent, listRoles, listStudents, listUsers, searchStudents } from "@/lib/repository";
 import { dashboard, roleLabel } from "@/lib/roles";
 import type { Student } from "@/lib/models";
 import { Shell } from "./shell";
@@ -15,7 +15,7 @@ export function StudentData({ student }: { student: Student }) {
   </dl>;
 }
 export async function StudentTable({ search = "" }: { search?: string }) {
-  const students = search ? await searchStudentsUnsafeV1(search) : await listStudents();
+  const students = search ? await searchStudents(search) : await listStudents();
   return <div className="table-scroll"><table><thead><tr>
     <th>Studentnummer</th><th>Naam</th><th>Actie</th>
   </tr></thead><tbody>{students.map(student => <tr key={student.id}>
@@ -42,11 +42,8 @@ export async function UserTable({ canManage = true }: { canManage?: boolean }) {
 }
 export async function StudentDetail({ id, teacher = false }: { id: string; teacher?: boolean }) {
   const user = await requireUser(teacher ? "Teacher" : "Student");
-  // SECURITY VERSION 2: verify that the requested student belongs to the logged in user
-  // VERSION 1 deliberately does NOT compare student.user_id with user.id.
-  // A logged-in student can change /student/1 to /student/2 (Broken Access Control).
   const student = await findStudent(Number(id));
-  if (!student) notFound();
+  if (!student || (user.role === "Student" && student.user_id !== user.id)) notFound();
   return <Shell user={user} title="Studentgegevens"><StudentData student={student} />
     <Link href={teacher ? "/teacher/students" : dashboard[user.role]}>Terug</Link>
   </Shell>;

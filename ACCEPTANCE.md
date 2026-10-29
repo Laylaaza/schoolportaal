@@ -1,23 +1,23 @@
-# Acceptatie — versie-1-demonstraties (27 oktober 2026)
+# Version 2 acceptance — 28 October 2026
 
-## Uitgevoerd
+## Executed locally
 
-- Productieserver gestart: `/login` gaf HTTP 200. Zonder cookie gaven `/admin/users`, `/student/2` en `/teacher/students?q=test` een 307-redirect naar `/login`. Testserver daarna gestopt.
+- `npm run test:db`: 24 tests passed.
+- `npm run build`: compilation, TypeScript, page generation and final build passed. Existing Next.js dependency advisory was reported; no unrelated framework upgrade performed.
+- Student record ownership checked in the actual server component: own record allowed, other/unlinked/missing records denied; teacher detail access preserved.
+- Actual admin route uses the real auth helper with simulated sessions: anonymous, student and teacher denied; Administrator allowed.
+- Add-user action rejects invalid formats and lengths before insert, including removal of browser validation; valid input remains accepted.
+- Logout deletes the server session before clearing the cookie; simulated replay redirects to login. A database deletion failure does not claim success.
+- Search SQL is invariant for normal and malicious-looking input; term is sent separately to execute.
+- Real bcryptjs tests: original passwords verify, wrong/plaintext values fail, new user insert stores a hash, over-72-byte passwords are rejected rather than truncated.
+- Migration: dry-run changes nothing, apply hashes plaintext, rerun skips hashes, short columns/invalid rows abort, write failure rolls back all rows.
 
-- 17 tests geslaagd (`npm run test:db`) met gesimuleerde databaseantwoorden.
-- Productiebouw en TypeScript geslaagd. De eerste sandboxbuild kon gegenereerde bestanden niet schrijven; de build buiten de sandbox slaagde.
-- De build meldde daarnaast een bestaande Next.js-dependencywaarschuwing; geen dependency-upgrade uitgevoerd.
-- Bestaande loginredirects voor Student, Teacher en Administrator getest met databaseantwoorden; geen hardcoded accountfallback.
-- Student-ID-lookup blijft zonder ownershipfilter; login blijft vereist.
-- `/admin/users` roept de logincontrole zonder rolvereiste aan; studenten krijgen de gebruikerslijst zonder mutatieknoppen.
-- Eén zoekfunctie gebruikt onveilige concatenatie; de overige query's blijven gebonden.
-- Add-user-serveractie accepteert `lab!demo`, terwijl de browserpattern die naam afwijst. Adminrol en geldige role_id blijven vereist.
-- Logout wist alleen de cookie; sessieopvraging accepteert de behouden niet-verlopen token.
-- Login geeft verschillende fouten voor onbekende naam en fout wachtwoord; databasefouten blijven generiek.
-- Live read-only databasecontrole: ETIMEDOUT. Geen geslaagde echte SQL-injectie, live login of database-write geclaimd.
-- MySQL-grants, GNS3 en pfSense niet gewijzigd. De huidige bereikbaarheid/grants zijn vanaf hier niet bevestigd.
+## Not verified live
 
-## Nog in het virtuele lab
+`npm run db:check` returned ETIMEDOUT from this computer. No live migration was applied. Tests mock database responses and do not prove actual MySQL connectivity, schema compatibility or current lab account contents.
 
-Voer eerst `npm run db:check` op SRV WEB01 uit. Volg daarna de negen afzonderlijke scenario's in `VIDEO_TESTS.md` en controleer alle normale logins, studentgegevens, docententabel en adminmutaties. Gebruik bestaande labaccounts en records. De lokale tests voeren geen echte SQL uit en vervangen deze live checks niet.
+## Server checklist
 
+Follow `SECURITY_VERSION_2_VIDEO_GUIDE.md`: stop service, snapshot/backup, install, db:check, tests/build, preview migration, explicit apply, confirm zero remaining plaintext candidates, restart service. Repeat the same six Version 1 video tests. Confirm normal student/teacher/admin logins with their original passwords, teacher partial-name search, valid new user creation, and logout/replay rejection.
+
+Database grants, network topology and firewall were not changed. The historical Version 1 test document is retained only for comparison.

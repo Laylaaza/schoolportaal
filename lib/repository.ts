@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { getDb, logDatabaseError, DatabaseUnavailableError } from "./db";
 import type { RoleName, User, Student } from "./models";
+import { hashPassword } from "./passwords.cjs";
 
 // All portal data comes from MySQL. There is no JSON or demo-data fallback.
 function roleName(name: string): RoleName {
@@ -56,9 +57,10 @@ export async function findOwnStudent(userId: number) {
 }
 export async function createUser(input: Omit<User, "id">) {
   if (await findLoginUser(input.username)) return false;
+  const passwordHash = await hashPassword(input.password);
   try {
     await getDb().execute("INSERT INTO users (username, password, role_id) VALUES (?, ?, ?)",
-      [input.username, input.password, input.role_id]);
+      [input.username, passwordHash, input.role_id]);
     return true;
   } catch (error) {
     if ((error as { code?: string }).code === "ER_DUP_ENTRY") return false;
@@ -92,15 +94,9 @@ export async function deleteSession(token: string) {
   await write("logout", "DELETE FROM sessions WHERE session_id = ?", [token]);
 }
 
-// Isolated local-lab SQL injection point. All other queries retain bound values.
-export async function searchStudentsUnsafeV1(search: string): Promise<Student[]> {
-  // SECURITY VERSION 2: replace string concatenation with a parameterised query
-  const sql = "SELECT " + studentColumns + " FROM students WHERE CONCAT(first_name, ' ', last_name) LIKE '%" + search + "%' ORDER BY id";
-  try {
-    const [result] = await getDb().query<RowDataPacket[]>(sql);
-    return result as Student[];
-  } catch (error) {
-    logDatabaseError("student-search-v1", error);
-    throw new DatabaseUnavailableError();
-  }
+// The statement and search value are sent separately; input cannot change SQL syntax.
+export async function searchStudents(search: string): Promise<Student[]> {
+  return rows<Student>("student-search",
+    "SELECT " + studentColumns + " FROM students WHERE CONCAT(first_name, ' ', last_name) LIKE ? ORDER BY id",
+    [`%${search}%`]);
 }

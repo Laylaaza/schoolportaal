@@ -1,88 +1,45 @@
-# Security Playground — MySQL, versie 1
+# Security Playground — Version 2
 
-Het bestaande Next.js-schoolportaal gebruikt nu de MySQL-database `schoolportal`. Routes, Nederlandse interface en versie-1-beveiligingsgedrag blijven behouden. Er is geen JSON- of demodatafallback.
+The existing Next.js/MySQL portal now fixes the six requested Version 1 issues. Routes, styling, infrastructure, database grants, cookie settings and distinct login error messages remain unchanged.
 
-## Installatie op SRV-WEB01
+Read **[SECURITY_VERSION_2_VIDEO_GUIDE.md](SECURITY_VERSION_2_VIDEO_GUIDE.md)** for the complete before/after report, final source line references, six recording scripts and migration instructions. `VIDEO_TESTS.md` is retained as the historical Version 1 recording plan; its vulnerable outcomes no longer describe these six Version 2 behaviours.
 
-Voer in de bestaande projectmap uit:
+## Deploy on SRV WEB01
+
+Use the existing project directory and existing server-side environment configuration. Stop the portal service and take a private lab/database backup or VM snapshot before migration. Do not commit that backup. Then run:
 
 ```sh
 npm ci
-```
-
-Maak of bewerk zelf `.env.local` op SRV-WEB01. Dit bestand is genegeerd door Git. Zet hierin:
-
-```dotenv
-DB_HOST=192.168.10.30
-DB_PORT=3306
-DB_USER=schoolapp
-DB_PASSWORD=<vul het werkelijke databasewachtwoord in>
-DB_NAME=schoolportal
-```
-
-`.env.example` bevat alleen een leeg wachtwoordveld. Zet geen echt wachtwoord in broncode of een commit. Een al bestaand `.env.local` is niet gewijzigd.
-
-```sh
 npm run db:check
 npm run test:db
 npm run build
+npm run migrate:passwords
+npm run migrate:passwords -- --apply
+npm run migrate:passwords
 npm start
 ```
 
-Herstart een bestaande service via de reeds gebruikte servicebeheerder in plaats van een tweede server te starten. `npm start` blijft luisteren op `127.0.0.1:3000`, zoals voorheen. Behoud de bestaande reverse-proxyconfiguratie op SRV-WEB01. De ontwikkelopdracht blijft `npm run dev`.
+If a service manager normally runs the portal, restart that service instead of starting a second `npm start` process. No service name is assumed here. The existing loopback binding and reverse proxy remain unchanged.
 
-`db:check` controleert verbinding, tabelkolommen, rollen en automatisch oplopende IDs zonder gegevens te wijzigen. Er worden geen tabellen, gebruikers of rechten aangemaakt. `users.id` en `sessions.id` moeten door MySQL worden gegenereerd (AUTO_INCREMENT); `session_id` moet een UUID van 36 tekens kunnen opslaan. Sessietijden worden als UTC geschreven en vergeleken. Gebruik dezelfde UTC-conventie bij het inspecteren van deze gegevens.
+`migrate:passwords` without arguments is a preview. `--apply` hashes existing plaintext passwords inside a transaction; existing recognised bcrypt hashes are skipped. Repeating the preview afterwards should report zero passwords to migrate. No migration is performed on application startup. Login rejects unmigrated plaintext: run the explicit migration before making Version 2 available to users.
 
-## Login en data
+The migration requires an InnoDB `users` table and a `password` column holding at least 60 characters. It does not alter the schema. If capacity is too short, enlarge only that column (typically VARCHAR(255), preserving its other attributes) after checking the existing definition and taking a backup, then rerun the preview. Empty or over-72-byte legacy passwords and unrecognised `$2` formats cause an abort before any row is updated. Review those exceptions manually instead of silently truncating or double-hashing them. The script prints counts/error codes, never passwords, hashes or tokens. A fully bcrypt-shaped legacy plaintext is indistinguishable from a stored hash without separate metadata: review any unexpected skipped count against your known lab dataset.
 
-`app/actions.ts` leest gebruikersnaam en wachtwoord. `findLoginUser` in `lib/repository.ts` haalt de gebruiker met een JOIN op `roles` op. Het ingevoerde wachtwoord wordt als platte tekst vergeleken met de waarde uit MySQL. Er zijn geen vaste inlogwachtwoorden meer in de applicatie.
+## Changes
 
-De bestaande accounts `student1`, `teacher1` en `admin1` gebruiken dus de wachtwoorden die op dit moment in MySQL staan. De rol uit MySQL bepaalt de redirect:
+- `components/records.tsx`: server-side student ownership check; uses the renamed safe search function.
+- `app/admin/users/page.tsx`: requires Administrator before loading users.
+- `app/actions.ts`: server-side username allowlist, session deletion before cookie deletion, bcrypt verification.
+- `lib/repository.ts`: parameterised student search and password hashing before user insertion.
+- `lib/passwords.cjs`: shared bcryptjs helper, cost 12, explicit 72-byte limit.
+- `scripts/migrate-passwords.cjs`: preview/apply password migration with preflight and rollback.
+- `package.json`, `package-lock.json`: bcryptjs dependency and migration command.
+- `tests/database.test.cjs`: regression tests for the six fixes and migration.
 
-| Databaserol | Bestaande UI-rol | Route |
-| --- | --- | --- |
-| student | Student | /student |
-| teacher | Docent | /teacher |
-| admin | Beheerder | /admin |
+The runtime still reads/writes MySQL via the existing environment-based connection. No JSON fallback, ORM, new topology, grants, firewall rules or unrelated features were introduced. Username enumeration, cookie hardening and the existing framework advisory remain out of this six-fix scope.
 
-Gebruikersbeheer leest en schrijft MySQL. Studentgegevens komen uit `students`, waarbij de eigen gegevens via `students.user_id = users.id` worden gevonden. De docententabel gebruikt dezelfde database. Sessies worden in `sessions` opgeslagen; de bestaande UUID-cookie en vervaltijd van acht uur blijven werken. Logout wist in versie 1 alleen de cookie; het token blijft tot de oorspronkelijke vervaltijd bruikbaar. Oude JSON-sessies worden niet gemigreerd: log opnieuw in.
+## Validation
 
-Alle bestaande routes blijven bestaan: `/login`, `/student`, `/student/[id]`, `/teacher`, `/teacher/students`, `/teacher/students/[id]`, `/admin`, `/admin/users`, `/admin/users/new`.
+`npm run test:db`: 24 passing tests (actual hashing, simulated database I/O). `npm run build`: passed; Next.js emitted its existing dependency security advisory. Dependency upgrades beyond bcryptjs were not performed.
 
-## Bestanden
-
-- `lib/db.ts`: centrale mysql2/promise-pool, omgevingsvariabelen en veilige foutregistratie.
-- `lib/repository.ts`: directe SQL-query's voor rollen, gebruikers, studenten en sessies.
-- `lib/auth.ts`: bestaande sessie- en basisrolcontrole; geen tweede loginsysteem.
-- `app/actions.ts`: bestaande formulieren met asynchrone databaseaanroepen.
-- `components/records.tsx`, `components/shell.tsx`, `app/student/page.tsx`, `app/admin/users/new/page.tsx`: wachten nu op databasegegevens; uiterlijk blijft gelijk.
-- `app/error.tsx`: eenvoudige foutpagina zonder SQL-details.
-- `scripts/check-db.cjs`: read-only controle voor SRV-WEB01.
-- `tests/database.test.cjs`: lokale tests met gesimuleerde databaseantwoorden.
-
-`lib/seed.ts` en het ongebruikte JSON-databasetype zijn verwijderd. Bestaande bestanden onder `data/` zijn niet verwijderd, maar worden nergens meer ingelezen of bijgewerkt. Ze zijn uitsluitend oude lokale gegevens, geen actieve databron. `mysql2` was al aanwezig; geen ORM of extra runtimebibliotheek toegevoegd.
-
-## Bewust behouden voor versie 2
-
-- Platte-tekst-wachtwoorden en eenvoudige wachtwoordvergelijking.
-- Voorspelbare studentroutes zonder eigendomscontrole: een ingelogde student kan bijvoorbeeld `/student/2` openen als dat record bestaat.
-- Bestaande eenvoudige cookies/sessies zonder extra hardening, rotatie of idle timeout.
-- Alleen basisvalidatie; geen rate limiting of MFA.
-- Bestaande MySQL-accountrechten blijven ongewijzigd.
-
-Alle SQL gebruikt gebonden waarden (`?`), behalve de ene geïsoleerde functie `searchStudentsUnsafeV1`. Deze bouwt de docentzoekopdracht bewust onveilig op voor de lokale versie-1-demonstratie. Beveiligingscommentaar staat alleen in de broncode. De log registreert uitsluitend een operationele naam en foutcode, nooit SQL-parameters of credentials.
-
-## Verificatie
-
-Zie `ACCEPTANCE.md` en de volledige opnametabel in `VIDEO_TESTS.md`. De build en 17 lokale tests slagen. Live databaseverificatie vanaf de ontwikkelcomputer gaf ETIMEDOUT; de echte accounts en databasebewerkingen moeten daarom op SRV-WEB01 nog worden gecontroleerd.
-
-## Extra geïsoleerde versie-1-testpunten (27 oktober 2026)
-
-- `/admin/users` controleert alleen login en laat iedere ingelogde rol de gebruikerslijst lezen. Toevoegen en rolwijzigingen blijven admin-only.
-- Studentzoeken op `/teacher/students` gebruikt één onveilige query.
-- De gebruikersnaamregel (3–30 letters/cijfers/underscores) bestaat alleen als browserpattern; de server laat bijvoorbeeld `lab!demo` door.
-- Logout wist alleen de browsercookie, niet de serversessie.
-- Login maakt onderscheid tussen een onbekende gebruiker en een verkeerd wachtwoord.
-- Bestaande MySQL-permissies en GNS3/pfSense-configuratie zijn niet aangepast.
-
-Alle toekomstige verbeteringen zijn gemarkeerd met `SECURITY VERSION 2:`. Next.js meldde tijdens de build ook een dependency-beveiligingsadvies; dependencyversies zijn in deze opdracht niet gewijzigd.
+The live read-only database check timed out (`ETIMEDOUT`) from this computer on 28 October 2026. No live MySQL migration or account login has been claimed. Complete the after-tests from the video guide on SRV WEB01 after migration.
